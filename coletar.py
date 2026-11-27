@@ -9,6 +9,7 @@ import re
 from datetime import date, datetime, timedelta
 from urllib.parse import quote
 from pathlib import Path
+from collections import Counter
 
 #fortaleza const
 URL_BUSCA = "https://diariooficial.fortaleza.ce.gov.br/api/search"
@@ -146,6 +147,19 @@ def item_macapa(item):
     }
 
 
+def listar_macapa(inicio, fim):
+    token, snapshot = abrir_macapa()
+    inventario = []
+    for ano, mes in meses_da_coleta(inicio, fim):
+        itens, snapshot = buscar_mes_macapa(token, snapshot, ano, mes)
+        for bruto in itens:
+            item = item_macapa(bruto)
+            data = date.fromisoformat(item["data_publicacao"])
+            item["destino"] = None if inicio <= data <= fim else "fora_do_intervalo"
+            inventario.append(item)
+    return inventario
+
+
 def processar(inventario):
     edicoes = []
     vistos = {}
@@ -216,16 +230,14 @@ def buscar_mes_fortaleza(ano, mes):
 
 if __name__ == "__main__":
     args = ler_argumentos()
-    inventario, totais = listar_fortaleza(args.inicio, args.fim)
+    inventario_fortaleza, totais = listar_fortaleza(args.inicio, args.fim)
+    inventario_macapa = listar_macapa(args.inicio, args.fim)
+    inventario = inventario_fortaleza + inventario_macapa
     edicoes = processar(inventario)
     gravar(edicoes, inventario, totais, args.inicio, args.fim)
-    for item in inventario:
-        if item["destino"] != "fora_do_intervalo":
-            print(item["numero"], item["tipo"], item["destino"], item.get("motivo", ""))
-    print(len(edicoes), "edições coletadas")
-    primeiro = min(edicoes, key=lambda e: e["data_publicacao"])
-    ultimo = max(edicoes, key=lambda e: e["data_publicacao"])
-    print("primeiro:", primeiro["numero"], primeiro["data_publicacao"])
-    print("ultimo:", ultimo["numero"], ultimo["data_publicacao"])
-
+    print(Counter((i["fonte"], i["destino"]) for i in inventario))
+    for e in edicoes:
+        por_pagina = [len(p.strip()) for p in e["texto"].split("\f")]
+        print(e["fonte"], e["numero"], e["tipo"], e["paginas"], "páginas | caracteres:", por_pagina[:10])
+    
     
