@@ -14,6 +14,18 @@ URL_PDF_FORTALEZA = "https://diariooficial.fortaleza.ce.gov.br/api/nodes/{id}/co
 PASTA_PDF = Path("pdfs")
 
 
+def requisitar(metodo, url, **kwargs):
+    for tentativa in (1, 2):
+        try:
+            resposta = requests.request(metodo, url, timeout=60, **kwargs)
+            resposta.raise_for_status()
+            return resposta
+        except requests.RequestException:
+            if tentativa == 2:
+                raise
+            time.sleep(WAIT)
+
+
 def tipo_fortaleza(nr):
     nr = nr.replace(" ", "").lower()
     if nr.endswith("s") and nr[:-1].isdigit():
@@ -39,8 +51,7 @@ def baixar_pdf(url):
     nome = hashlib.sha256(url.encode()).hexdigest()[:16] + ".pdf"
     caminho = PASTA_PDF / nome
     if not caminho.exists():
-        resposta = requests.get(url, timeout=60)
-        resposta.raise_for_status()
+        resposta = requisitar("GET", url)
         if not resposta.content.startswith(b"%PDF"):
             raise ValueError(f"A resposta não é um PDF: {url}")
         PASTA_PDF.mkdir(exist_ok=True)
@@ -137,13 +148,13 @@ def ler_argumentos():
     parser.add_argument("--fim", required=True, type=date.fromisoformat, help="data final, AAAA-MM-DD")
     return parser.parse_args()
 
+
 def buscar_mes_fortaleza(ano, mes):
     entradas = []
     pagina = 1
     while True:  
         payload = {"ano": str(ano), "mes": f"{mes:02d}", "nrDom": None, "conteudo": None, "captcha": "", "page": pagina, "pageSize": 30}
-        resposta = requests.post(URL_BUSCA, json=payload, timeout=30)
-        resposta.raise_for_status()
+        resposta = requisitar("POST", URL_BUSCA, json=payload)
         lista = resposta.json()["list"]
         entradas += [item["entry"] for item in lista["entries"]]
         time.sleep(WAIT)
