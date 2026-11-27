@@ -4,6 +4,29 @@ from urllib.parse import quote
 
 URL_BUSCA = "https://diariooficial.fortaleza.ce.gov.br/api/search"
 WAIT = 6 #segundos; a fonte pede 5 (captcha-required -> intervalSeconds)
+URL_PDF_FORTALEZA = "https://diariooficial.fortaleza.ce.gov.br/api/nodes/{id}/content?inline=1&name={nome}"
+
+
+def tipo_fortaleza(nr):
+    nr = nr.replace(" ", "").lower()
+    if nr.endswith("s") and nr[:-1].isdigit():
+        return "suplemento", nr[:-1]
+    if nr.isdigit():
+        return "normal", nr
+    return None, nr
+
+
+def item_fortaleza(entry):
+    tipo, numero = tipo_fortaleza(entry["nrDiarioOficial"])
+    return {
+        "fonte": "fortaleza",
+        "data_publicacao": entry["dataPublicacao"][:10],
+        "numero": numero,
+        "tipo": tipo,
+        "url": URL_PDF_FORTALEZA.format(id=entry["id"], nome=quote(entry["name"])),
+        "titulo_fonte": entry["name"],
+    }
+
 
 def buscar_mes_fortaleza(ano, mes):
     entradas = []
@@ -19,12 +42,7 @@ def buscar_mes_fortaleza(ano, mes):
             return entradas, lista["pagination"]["totalItems"]
         pagina += 1
 
-entradas, total = buscar_mes_fortaleza(2026, 4)
-print(len(entradas), total)
-
-'''
-print(dados["list"]["pagination"])
-for item in dados["list"]["entries"]:
-    e = item["entry"]
-    print(e["nrDiarioOficial"], e["dataPublicacao"], e["name"])
-'''
+if __name__ == "__main__":
+    entradas, total = buscar_mes_fortaleza(2026, 1)
+    for entry in entradas:
+        print(item_fortaleza(entry))
