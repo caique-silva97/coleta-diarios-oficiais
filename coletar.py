@@ -3,6 +3,7 @@ import requests
 import time
 import hashlib
 import pymupdf
+import json
 from datetime import date, datetime, timedelta
 from urllib.parse import quote
 from pathlib import Path
@@ -110,6 +111,26 @@ def processar(inventario):
     return edicoes
 
 
+def gravar_jsonl(caminho, registros):
+    with open(caminho, "w", encoding="utf-8") as arquivo:
+        for registro in registros:
+            arquivo.write(json.dumps(registro, ensure_ascii=False)+ "\n")
+
+
+def gravar(edicoes, inventario, totais, inicio, fim):
+    pasta = Path("dados")
+    pasta.mkdir(exist_ok=True)
+    gravar_jsonl(pasta / "edicoes.jsonl", edicoes)
+    gravar_jsonl(pasta / "inventario.jsonl", inventario)
+    resumo = {
+        "inicio": inicio.isoformat(),
+        "fim": fim.isoformat(),
+        "executado_em": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "totais_fonte": {"fortaleza": totais},
+    }
+    (pasta / "coleta.json").write_text(json.dumps(resumo, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def ler_argumentos():
     parser = argparse.ArgumentParser(description= "Coleta diários oficiais de Macapá e Fortaleza.")
     parser.add_argument("--inicio", required=True, type=date.fromisoformat, help="data inicial, AAAA-MM-DD")
@@ -135,6 +156,7 @@ if __name__ == "__main__":
     args = ler_argumentos()
     inventario, totais = listar_fortaleza(args.inicio, args.fim)
     edicoes = processar(inventario)
+    gravar(edicoes, inventario, totais, args.inicio, args.fim)
     for item in inventario:
         if item["destino"] != "fora_do_intervalo":
             print(item["numero"], item["tipo"], item["destino"], item.get("motivo", ""))
