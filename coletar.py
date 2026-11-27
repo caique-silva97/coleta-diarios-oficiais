@@ -4,14 +4,22 @@ import time
 import hashlib
 import pymupdf
 import json
+import html
+import re
 from datetime import date, datetime, timedelta
 from urllib.parse import quote
 from pathlib import Path
 
+#fortaleza const
 URL_BUSCA = "https://diariooficial.fortaleza.ce.gov.br/api/search"
 WAIT = 6 #segundos; a fonte pede 5 (captcha-required -> intervalSeconds)
 URL_PDF_FORTALEZA = "https://diariooficial.fortaleza.ce.gov.br/api/nodes/{id}/content?inline=1&name={nome}"
 PASTA_PDF = Path("pdfs")
+
+#macapa
+URL_MACAPA = "https://macapa.ap.gov.br/diarios-oficiais/"
+URL_LIVEWIRE = "https://macapa.ap.gov.br/livewire/update"
+SESSAO = requests.Session() 
 
 
 def requisitar(metodo, url, **kwargs):
@@ -93,6 +101,49 @@ def listar_fortaleza(inicio, fim):
             item["destino"] = None if inicio <= data <= fim else "fora_do_intervalo"
             inventario.append(item)
     return inventario, totais
+
+
+def abrir_macapa():
+    pagina = requisitar("GET", URL_MACAPA).text
+    token = re.search(r'data-csrf="([^"]+)"', pagina).group(1)
+    snapshot = html.unescape(re.search(r'wire:snapshot="([^"]+)"', pagina).group(1))
+    time.sleep(WAIT)
+    return token, snapshot
+
+
+def chamar_livewire(token, snapshot, metodo, parametro):
+    corpo = {"_token": token, "components": [{"snapshot": snapshot, "updates": {},
+             "calls":[{"path": "", "method": metodo, "params": [parametro]}]}]}
+    resposta = requisitar("POST", URL_LIVEWIRE, json=corpo, headers={"X-Livewire": ""})
+    time.sleep(WAIT)
+    return resposta.json()["components"][0]["snapshot"]
+
+
+def buscar_mes_macapa(token, snapshot, ano, mes):
+    snapshot = chamar_livewire(token, snapshot, "changeYear", str(ano))
+    snapshot = chamar_livewire(token, snapshot, "setMonth", f"{mes:02d}")
+    dados = json.loads(snapshot)["data"]
+    itens = [par[0] for par in dados["tabDiaries"][0]]
+    return itens, snapshot
+
+
+def item_macapa(item):
+    achado = re.fullmatch(r"DIÁRIO OFICIAL Nº: \d+(-A)?-\d{2}/\d{2}/\d{4}", item["title"])
+    if achado is None:
+        tipo = None
+    elif achado.group(1):
+        tipo = "suplemento"
+    else:
+        tipo = "normal"
+    dia, mes, ano = item["date"].split("/")
+    return {
+        "fonte": "macapa",
+        "data_publicacao": f"{ano}-{mes}-{dia}",
+        "numero": item["id"],
+        "tipo": tipo,
+        "url": item["link"],
+        "titulo_fonte": item["title"],
+    }
 
 
 def processar(inventario):
