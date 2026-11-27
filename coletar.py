@@ -1,6 +1,7 @@
 import requests
 import time
 import hashlib
+import pymupdf
 from urllib.parse import quote
 from pathlib import Path
 
@@ -46,6 +47,12 @@ def baixar_pdf(url):
     return caminho, hashlib.sha256(conteudo).hexdigest()
 
 
+def extrair_texto(caminho):
+    with pymupdf.open(caminho) as doc:
+        paginas = [pagina.get_text() for pagina in doc]
+    return "\f".join(paginas), len(paginas)
+
+
 def buscar_mes_fortaleza(ano, mes):
     entradas = []
     pagina = 1
@@ -61,9 +68,9 @@ def buscar_mes_fortaleza(ano, mes):
         pagina += 1
 
 if __name__ == "__main__":
-    entradas, total = buscar_mes_fortaleza(2026, 11)
-    for entry in entradas:
-        if entry["nrDiarioOficial"] in ("18434", "18438"):
-            item = item_fortaleza(entry)
-            caminho, sha = baixar_pdf(item["url"])
-            print(item["titulo_fonte"], caminho, sha[:])
+    for caminho in PASTA_PDF.glob("*.pdf"):
+        texto, paginas = extrair_texto(caminho)
+        por_pagina = [len(p) for p in texto.split("\f")]
+        print(caminho.name, paginas, "páginas | caracteres por página:", por_pagina)
+        print(texto[:300])
+        print("-" * 60)
