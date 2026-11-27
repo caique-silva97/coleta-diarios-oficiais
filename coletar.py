@@ -1,10 +1,13 @@
 import requests
 import time
+import hashlib
 from urllib.parse import quote
+from pathlib import Path
 
 URL_BUSCA = "https://diariooficial.fortaleza.ce.gov.br/api/search"
 WAIT = 6 #segundos; a fonte pede 5 (captcha-required -> intervalSeconds)
 URL_PDF_FORTALEZA = "https://diariooficial.fortaleza.ce.gov.br/api/nodes/{id}/content?inline=1&name={nome}"
+PASTA_PDF = Path("pdfs")
 
 
 def tipo_fortaleza(nr):
@@ -28,6 +31,21 @@ def item_fortaleza(entry):
     }
 
 
+def baixar_pdf(url):
+    nome = hashlib.sha256(url.encode()).hexdigest()[:16] + ".pdf"
+    caminho = PASTA_PDF / nome
+    if not caminho.exists():
+        resposta = requests.get(url, timeout=60)
+        resposta.raise_for_status()
+        if not resposta.content.startswith(b"%PDF"):
+            raise ValueError(f"A resposta não é um PDF: {url}")
+        PASTA_PDF.mkdir(exist_ok=True)
+        caminho.write_bytes(resposta.content)
+        time.sleep(WAIT)
+    conteudo = caminho.read_bytes()
+    return caminho, hashlib.sha256(conteudo).hexdigest()
+
+
 def buscar_mes_fortaleza(ano, mes):
     entradas = []
     pagina = 1
@@ -43,6 +61,9 @@ def buscar_mes_fortaleza(ano, mes):
         pagina += 1
 
 if __name__ == "__main__":
-    entradas, total = buscar_mes_fortaleza(2026, 1)
+    entradas, total = buscar_mes_fortaleza(2026, 11)
     for entry in entradas:
-        print(item_fortaleza(entry))
+        if entry["nrDiarioOficial"] in ("18434", "18438"):
+            item = item_fortaleza(entry)
+            caminho, sha = baixar_pdf(item["url"])
+            print(item["titulo_fonte"], caminho, sha[:])
