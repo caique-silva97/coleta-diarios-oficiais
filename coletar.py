@@ -6,6 +6,7 @@ import pymupdf
 import json
 import html
 import re
+import subprocess
 from datetime import date, datetime, timedelta
 from urllib.parse import quote
 from pathlib import Path
@@ -22,6 +23,7 @@ URL_MACAPA = "https://macapa.ap.gov.br/diarios-oficiais/"
 URL_LIVEWIRE = "https://macapa.ap.gov.br/livewire/update"
 SESSAO = requests.Session() 
 
+LIMITE_LEGIVEL = 0.15 # calibrado calibrado em 27/11: texto bom >= 0,20; lixo de OCR <= 0,11
 
 def requisitar(metodo, url, **kwargs):
     for tentativa in (1, 2):
@@ -71,9 +73,51 @@ def baixar_pdf(url):
 
 
 def extrair_texto(caminho):
+    cache = caminho.with_suffix(".txt")
+    if cache.exists():
+        texto = cache.read_text(encoding="utf-8")
+        return texto, texto.count("\f") + 1
     with pymupdf.open(caminho) as doc:
-        paginas = [pagina.get_text() for pagina in doc]
-    return "\f".join(paginas), len(paginas)
+        paginas = []
+        for pagina in doc:
+            texto = pagina.get_text()
+            if len(texto.strip()) < 50:
+                texto = ocr_pagina(pagina)
+            paginas.append(texto)
+    texto = "\f".join(paginas)
+    cache.write_text(texto, encoding="utf-8")
+    return texto, len(paginas)
+    
+
+PALAVRAS_COMUNS = {"de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "com", "não",
+                   "uma", "os", "no", "se", "na", "por", "as", "dos", "ao", "das", "à", "nos",
+                   "ou", "sua", "seu", "pela", "pelo", "art"}
+
+
+def legibilidade(texto):
+    palavras = re.findall(r"[a-zà-ú]+", texto.lower())
+    if not palavras:
+        return 0.0
+    return sum(p in PALAVRAS_COMUNS for p in palavras) / len(palavras)
+
+
+def ocr(pagina):
+    imagem = pagina.get_pixmap(dpi=300).tobytes("png")
+    resultado = subprocess.run(["tesseract", "stdin", "stdout", "-l", "por"],
+                               input=imagem, capture_output=True, check=True)
+    return resultado.stdout.decode("utf-8")
+
+
+def ocr_pagina(pagina):
+    texto= ocr(pagina)
+    if legibilidade(texto) >= LIMITE_LEGIVEL:
+        return texto
+    for giro in (90, 270, 180):
+        pagina.set_rotation(giro)
+        girado = ocr(pagina)
+        if legibilidade(girado) >= LIMITE_LEGIVEL:
+            return girado
+    return texto
 
 
 def primeiro_dia_mes_seguinte(dia):
@@ -166,6 +210,7 @@ def processar(inventario):
     for item in inventario:
         if item["destino"] == "fora_do_intervalo":
             continue
+        print(item["fonte"], item["numero"], item["tipo"], flush=True)
         try:
             caminho, sha = baixar_pdf(item["url"])
             texto, paginas = extrair_texto(caminho)
