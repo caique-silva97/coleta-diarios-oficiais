@@ -24,6 +24,7 @@ URL_LIVEWIRE = "https://macapa.ap.gov.br/livewire/update"
 SESSAO = requests.Session() 
 
 LIMITE_LEGIVEL = 0.15 # calibrado calibrado em 27/11: texto bom >= 0,20; lixo de OCR <= 0,11
+TAMANHO_MINIMO = 200 # caracteres; abaixo disso, a proporção de palavras comuns não é confiável
 
 def requisitar(metodo, url, **kwargs):
     for tentativa in (1, 2):
@@ -108,14 +109,18 @@ def ocr(pagina):
     return resultado.stdout.decode("utf-8")
 
 
+def pagina_boa(texto):
+    return len(texto.strip()) >= TAMANHO_MINIMO and legibilidade(texto) >= LIMITE_LEGIVEL
+
+
 def ocr_pagina(pagina):
     texto= ocr(pagina)
-    if legibilidade(texto) >= LIMITE_LEGIVEL:
+    if pagina_boa(texto) >= LIMITE_LEGIVEL:
         return texto
     for giro in (90, 270, 180):
         pagina.set_rotation(giro)
         girado = ocr(pagina)
-        if legibilidade(girado) >= LIMITE_LEGIVEL:
+        if pagina_boa(girado):
             return girado
     return texto
 
